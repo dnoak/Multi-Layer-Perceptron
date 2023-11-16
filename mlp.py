@@ -40,12 +40,14 @@ class Neuron(ActivationFunctions):
         self.wg = np.zeros(self.w.shape, dtype=self.dtype)
         self.b = 2*(np.random.random(1).astype(self.dtype)-1/2)
         self.bg = np.zeros(self.b.shape, dtype=self.dtype)
+
+    def reset_grad(self):
+        self.wg = np.zeros(self.w.shape, dtype=self.dtype)
+        self.bg = np.zeros(self.b.shape, dtype=self.dtype)
         
     def apply_grad(self):
         self.w -= self.wg
-        self.wg = np.zeros(self.w.shape, dtype=self.dtype)
         self.b -= self.bg
-        self.bg = np.zeros(self.b.shape, dtype=self.dtype)
 
     def Z(self, x):
         z = np.sum(x * self.w) + self.b
@@ -70,7 +72,7 @@ class Layer:
 class NeuralNetwork:
     arquiteture: list[dict]
     lr: float = 0.01
-    h: float = 0.000001
+    h: float = 0.0001
     loss_fn: id = LossFunctions.r2
     random_seed: int = np.random.randint(0, 1000)
     def __post_init__(self):
@@ -84,7 +86,12 @@ class NeuralNetwork:
             print(' '*2, l)
             for n in l.neurons:
                 print(' '*4, n, '\n', ' '*6, n.w, n.b)
-        
+    
+    def reset_grads(self):
+        for l in self.layers:
+            for n in l.neurons:
+                n.reset_grad()
+    
     def apply_grads(self):
         for l in self.layers:
             for n in l.neurons:
@@ -102,14 +109,13 @@ class NeuralNetwork:
                     fw2 = self.loss_fn(self.forward(x), y)
                     n.w[wi] -= self.h
                     fw1 = self.loss_fn(self.forward(x), y)
-                    n.wg[wi] += self.grad(fw2, fw1)
+                    n.wg[wi] = self.grad(fw2, fw1)                    
                 n.b += self.h
                 fb2 = self.loss_fn(self.forward(x), y)
                 n.b -= self.h
                 fb1 = self.loss_fn(self.forward(x), y)
-                n.bg += self.grad(fb2, fb1)
-        self.apply_grads()
-        
+                n.bg = self.grad(fb2, fb1)
+
     def forward(self, x):
         for l in self.layers:
             x = l.output(x)
@@ -119,11 +125,13 @@ class NeuralNetwork:
         train_size = len(train_data['input'])
         for epoch in range(epochs):
             loss = 0
-            for x, y in zip(*train_data.values()):                        
+            for x, y in zip(*train_data.values()):          
                 self.backward(x, y, train_size)
                 loss += self.loss_fn(self.forward(x), y)
-            if epoch % 10 == 0:
-                print('Epoch =', epoch, f", Loss: {loss/train_size}")
+                self.apply_grads()
+                self.reset_grads()
+                #input()
+            print('Epoch =', epoch, f", Loss: {loss/train_size}")
 
         print('Resultados: ')
         for x, y in zip(*train_data.values()):
@@ -136,15 +144,15 @@ train_data_XOR = {
 }
 
 train_data_linear = {
-    'input':  -np.expand_dims(np.arange(10), axis=1),
-    'output': -np.expand_dims(2 * np.arange(10) + 10, axis=1)
+    'input':  np.expand_dims(np.arange(10), axis=1),
+    'output': np.expand_dims(np.arange(10)**2, axis=1)
 }
 
 nn = NeuralNetwork(
-    arquiteture=[2, 5, 1]
+    arquiteture=[1, 4, 5, 1]
 )
 
-nn.train(train_data_XOR, 500)
+nn.train(train_data_linear, 500)
 #nn.backward(1, 2)
 
 
