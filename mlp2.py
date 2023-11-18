@@ -100,9 +100,10 @@ class Layer:
 class NeuralNetwork:
     layers: list
     activations: list
-    lr: float = 10e-3
+    lr: float = 20e-4
     h: float = 10e-6
     loss: Callable = Loss.L2
+    graphics = False
     random_seed: int = 3060 #np.random.randint(0, 10000)
 
     def __post_init__(self):
@@ -114,7 +115,7 @@ class NeuralNetwork:
             zip(self.layers[1:], self.layers[:-1], self.activations)
         ]
     
-    def print(self):
+    def arquiteture(self):
         print(f"layer 0: {self.layers[0].prev_height} neuros\n - ")
         for i, l in enumerate(self.layers):
             print(f"layer {i+1}: {len(l.neurons)} neurons")
@@ -149,57 +150,83 @@ class NeuralNetwork:
     
     def test(self, inputs, outputs):
         for x, y in zip(inputs, outputs):
-            print(f"Input: {x}, Pred: {np.round(self.forward(x), 2)}, Real: {y}") 
+            y_pred = np.round(self.forward(x), 2)
+            print(f"Input: {x}, Pred: {y_pred}, Real: {y}") 
+
+    def visual_loss(self, x, y_pred, y):
+        x = x.squeeze().astype(np.float32)
+        y_pred = y_pred.squeeze().astype(np.float32)
+        y = y.squeeze().astype(np.float32)
+        
+        min_x, max_x = np.min(x), np.max(x)
+        min_y, max_y = np.min([np.min(y), np.min(y_pred)]), np.max([np.max(y), np.max(y_pred)])
+
+        norm_x = (x - min_x) / (max_x - min_x)
+        norm_y = (y - min_y) / (max_y - min_y)
+        norm_y_pred = (y_pred - min_y) / (max_y - min_y)
+
+        plt.scatter(norm_x, norm_y, c='blue')
+        plt.scatter(norm_x, norm_y_pred, c='red')
+        plt.show()
+
+    def train_loss(self, x, y, epoch):
+        y_pred = []
+        for xi in x:
+            y_pred += [self.forward(xi)]
+        if self.graphics:
+            self.visual_loss(x, np.array(y_pred), y)
+        print(f"Epoch:{epoch}, Loss: {np.sum(self.loss(y_pred, y))}") 
     
-    def val_loss(self, inputs, outputs, epoch):
-        loss = 0
-        for x, y in zip(inputs, outputs):
-            loss += self.loss(self.forward(x), y)
-        print(f"Epoch:{epoch}, Loss: {loss}") 
-    
-    def train(self, inputs, outputs, epochs):
-        train_size = len(inputs)
+    def train(self, x, y, epochs):
+        train_size = len(x)
         for epoch in range(epochs):
-            inputs_outputs = list(zip(inputs, outputs))
-            random.shuffle(inputs_outputs)
-            inputs, outputs = zip(*inputs_outputs)
-            for x, y in zip(inputs, outputs):
-                self.backward(x, y, train_size)
+            #inputs_outputs = list(zip(inputs, outputs))
+            #random.shuffle(inputs_outputs)
+            #inputs, outputs = zip(*inputs_outputs)
+            for xi, yi in zip(x, y):
+                self.backward(xi, yi, train_size)          
             self.apply_grads()
-            self.val_loss(inputs, outputs, epoch)
-        self.test(inputs, outputs)
+            self.train_loss(x, y, epoch)
+        self.test(x, y)
 
 @dataclass
 class TrainData:
+    random_seed: 1010
+
+    def __post_init__(self):
+        np.random.seed(self.random_seed)
+    
     @staticmethod
     def xor(show=False):
         inputs = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
         outputs = np.array([[0], [1], [1], [0]])
-        return {'inputs': inputs, 'outputs': outputs}
+        return {'x': inputs, 'y': outputs}
     
     @staticmethod
     def linear(show=False):
         inputs = np.expand_dims(np.arange(10), axis=1)
         outputs = 2 * np.expand_dims(np.arange(10), axis=1) - 10
-        return {'inputs': inputs, 'outputs': outputs}
-
+        return {'x': inputs, 'y': outputs}
+ 
     @staticmethod
     def circle(show=False):
-        data_circle_xy = 15*(np.random.random((500, 2))-1/2)
-        outputs = np.array([[x**2 + y**2 < 25] for x, y in data_circle_xy]).astype(np.float32)
+        data_circle_xy = 20*(np.random.random((500, 2))-1/2)
+        outputs = np.array([[x**2 + y**2 < 5**2] for x, y in data_circle_xy]).astype(np.float32)
         if show:
             red = data_circle_xy[outputs.squeeze() == 1]
             blue = data_circle_xy[outputs.squeeze() == 0]
             plt.scatter(red[:, 0], red[:, 1], c='red')
             plt.scatter(blue[:, 0], blue[:, 1], c='blue')
             plt.show()
-        return {'inputs': data_circle_xy, 'outputs': outputs}
+        return {'x': data_circle_xy, 'y': outputs}
 
-train_data = TrainData.linear(show=True)
+train_data = TrainData.circle(show=True)
 
 nn = NeuralNetwork(
-    layers=[1, 2, 1],
-    activations=[Activation.linear, Activation.linear]
+    layers=[2, 3, 2, 1],
+    activations=[Activation.ReLU, Activation.ReLU, Activation.ReLU],
+    lr=20e-4,
+    loss=Loss.L2,
 )
 
-nn.train(**train_data, epochs=500)
+nn.train(**train_data, epochs=100)
