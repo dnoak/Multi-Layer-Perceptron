@@ -104,7 +104,7 @@ class NeuralNetwork:
     h: float = 10e-6
     loss: Callable = Loss.L2
     graphics = False
-    random_seed: int = 3060 #np.random.randint(0, 10000)
+    random_seed: int = 3060
 
     def __post_init__(self):
         print(f"Random seed: {self.random_seed}")
@@ -210,8 +210,8 @@ class TrainData:
  
     @staticmethod
     def circle(show=False):
-        data_circle_xy = 20*(np.random.random((500, 2))-1/2)
-        outputs = np.array([[x**2 + y**2 < 5**2] for x, y in data_circle_xy]).astype(np.float32)
+        data_circle_xy = 10*(np.random.random((100, 2))-1/2)
+        outputs = np.array([[x**2 + y**2 < 50/np.pi] for x, y in data_circle_xy]).astype(np.float32)
         if show:
             red = data_circle_xy[outputs.squeeze() == 1]
             blue = data_circle_xy[outputs.squeeze() == 0]
@@ -220,13 +220,14 @@ class TrainData:
             plt.show()
         return {'x': data_circle_xy, 'y': outputs}
 
-train_data = TrainData.circle(show=True)
+train_data = TrainData.circle(show=False)
 
 nn = NeuralNetwork(
-    layers=[2, 3, 2, 1],
+    layers=[2, 4, 4, 1],
     activations=[Activation.ReLU, Activation.ReLU, Activation.ReLU],
-    lr=20e-4,
+    lr=0.01,
     loss=Loss.L2,
+    random_seed=np.random.randint(0, 10000)
 )
 
-nn.train(**train_data, epochs=100)
+nn.train(**train_data, epochs=500)
