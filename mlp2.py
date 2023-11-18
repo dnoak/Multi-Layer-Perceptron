@@ -1,7 +1,9 @@
+import random
 import numpy as np
 import time
 from dataclasses import dataclass
 from typing import Callable
+import matplotlib.pyplot as plt
 
 @dataclass
 class Loss:
@@ -16,16 +18,13 @@ class Loss:
 @dataclass
 class Activation:
     @staticmethod
-    def set(function):
-        return getattr(Activation, function)
-        
-    @staticmethod
     def linear(z):
         return z
 
     @staticmethod
     def ReLU(z):
-        return max(0, z)
+        z[z < 0] = 0
+        return z
 
     @staticmethod
     def tanh(z):
@@ -34,6 +33,26 @@ class Activation:
     @staticmethod
     def sigmoid(z):
         return 1 / (1 + np.exp(-z))
+
+    @staticmethod
+    def _XeLU(x, w, b):
+        # pode ser apenas a multiplicacao
+        # da matriz identidade invertida
+        # (0 vira 1 e 1 vira 0)
+        identity = -np.identity(len(w))
+        identity[identity == 0] = 1
+        relu_input = np.tile(w, (len(w), 1)) * identity * x
+        relu_output = Activation.ReLU(relu_input)
+        xelu = np.prod(relu_output, axis=1).sum()
+        xelu *= - np.sum(np.abs(w))/np.prod(w)
+        return (xelu + b).squeeze()
+    
+    def XeLU(x, w, b):
+        signs = np.sign(x * w + b)
+        equal = np.all(signs == signs[0])
+        if not equal:
+            return np.sum(np.multiply(x, w)) + b
+        return 0
 
 @dataclass
 class Neuron:
@@ -55,10 +74,10 @@ class Neuron:
 
     def Z(self, x):
         if x.shape != self.w.shape:
-            raise ValueError('Shape: element wise mul:', x, self.w)
+            raise ValueError('Shape: element wise multiplication:', x, self.w)
         z = np.sum(np.multiply(x, self.w)) + self.b
         return z.squeeze()
-    
+  
     def output(self, x):
         return self.activation(self.Z(x))
 
@@ -81,12 +100,13 @@ class Layer:
 class NeuralNetwork:
     layers: list
     activations: list
-    lr: float = 10e-2
+    lr: float = 10e-3
     h: float = 10e-6
     loss: Callable = Loss.L2
-    random_seed: int = np.random.randint(0, 10000)
+    random_seed: int = 3060 #np.random.randint(0, 10000)
 
     def __post_init__(self):
+        print(f"Random seed: {self.random_seed}")
         if len(self.activations) != len(self.layers) - 1:
             raise ValueError(f"Len: activations != layers")
         self.layers = [
@@ -140,26 +160,46 @@ class NeuralNetwork:
     def train(self, inputs, outputs, epochs):
         train_size = len(inputs)
         for epoch in range(epochs):
+            inputs_outputs = list(zip(inputs, outputs))
+            random.shuffle(inputs_outputs)
+            inputs, outputs = zip(*inputs_outputs)
             for x, y in zip(inputs, outputs):
                 self.backward(x, y, train_size)
             self.apply_grads()
             self.val_loss(inputs, outputs, epoch)
         self.test(inputs, outputs)
 
+@dataclass
+class TrainData:
+    @staticmethod
+    def xor(show=False):
+        inputs = np.array([[0, 0], [0, 1], [1, 0], [1, 1]])
+        outputs = np.array([[0], [1], [1], [0]])
+        return {'inputs': inputs, 'outputs': outputs}
+    
+    @staticmethod
+    def linear(show=False):
+        inputs = np.expand_dims(np.arange(10), axis=1)
+        outputs = 2 * np.expand_dims(np.arange(10), axis=1) - 10
+        return {'inputs': inputs, 'outputs': outputs}
 
-train_data_XOR = {
-    'inputs': np.array([[0, 0], [0, 1], [1, 0], [1, 1]]),
-    'outputs': np.array([[0], [1], [1], [0]])
-}
-train_data_linear = {
-    'inputs': np.expand_dims(np.arange(10), axis=1),
-    'outputs': np.expand_dims(np.arange(10)+10, axis=1)
-}
+    @staticmethod
+    def circle(show=False):
+        data_circle_xy = 15*(np.random.random((500, 2))-1/2)
+        outputs = np.array([[x**2 + y**2 < 25] for x, y in data_circle_xy]).astype(np.float32)
+        if show:
+            red = data_circle_xy[outputs.squeeze() == 1]
+            blue = data_circle_xy[outputs.squeeze() == 0]
+            plt.scatter(red[:, 0], red[:, 1], c='red')
+            plt.scatter(blue[:, 0], blue[:, 1], c='blue')
+            plt.show()
+        return {'inputs': data_circle_xy, 'outputs': outputs}
+
+train_data = TrainData.linear(show=True)
 
 nn = NeuralNetwork(
-    layers=[2, 4, 4, 1],
-    activations=[Activation.ReLU, Activation.ReLU, Activation.linear]
+    layers=[1, 2, 1],
+    activations=[Activation.linear, Activation.linear]
 )
 
-nn.train(**train_data_XOR, epochs=200)
-#print(nn.layers[0].neurons[0].output(np.array([0, 1, 2])))
+nn.train(**train_data, epochs=500)
