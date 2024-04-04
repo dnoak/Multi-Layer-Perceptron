@@ -1,8 +1,6 @@
 import random
 import numpy as np
-import time
 from dataclasses import dataclass
-from typing import Callable
 import matplotlib.pyplot as plt
 
 @dataclass
@@ -23,6 +21,7 @@ class Activation:
 
     @staticmethod
     def ReLU(z):
+        z = z.copy()
         z[z < 0] = 0
         return z
 
@@ -33,31 +32,29 @@ class Activation:
     @staticmethod
     def sigmoid(z):
         return 1 / (1 + np.exp(-z))
+    
+    @staticmethod
+    def _XeLU(x1, x2):
+        x1 = np.expand_dims(x1, axis=0)
+        x2 = np.expand_dims(x2, axis=0)
+        s1 =  Activation.ReLU(x1) * Activation.ReLU(-x2)
+        s2 =  Activation.ReLU(-x1) * Activation.ReLU(x2)
+        if x1 * x2 == 0:
+            return np.zeros(1)
+        return - (s1 + s2) * (np.abs(x1) + np.abs(x2)) / (x1 * x2)
 
     @staticmethod
-    def _XeLU(x, w, b):
-        # pode ser apenas a multiplicacao
-        # da matriz identidade invertida
-        # (0 vira 1 e 1 vira 0)
-        identity = -np.identity(len(w))
-        identity[identity == 0] = 1
-        relu_input = np.tile(w, (len(w), 1)) * identity * x
-        relu_output = Activation.ReLU(relu_input)
-        xelu = np.prod(relu_output, axis=1).sum()
-        xelu *= - np.sum(np.abs(w))/np.prod(w)
-        return (xelu + b).squeeze()
-    
     def XeLU(x, w, b):
-        signs = np.sign(x * w + b)
-        equal = np.all(signs == signs[0])
-        if not equal:
-            return np.sum(np.multiply(x, w)) + b
-        return 0
+        total_sum = b.copy()
+        for i in range(len(x)):
+            for j in range(i, len(x)):
+                total_sum += Activation._XeLU(x[i]*w[j], x[j]*w[j])
+        return (total_sum.squeeze())
 
 @dataclass
 class Neuron:
     input_size: int
-    activation: Callable
+    activation: callable
     dtype = np.float32
     
     def __post_init__(self):
@@ -71,7 +68,7 @@ class Neuron:
         self.b -= self.b_grad
         self.w_grad *= 0
         self.b_grad *= 0
-
+    
     def Z(self, x):
         if x.shape != self.w.shape:
             raise ValueError('Shape: element wise multiplication:', x, self.w)
@@ -79,13 +76,48 @@ class Neuron:
         return z.squeeze()
   
     def output(self, x):
+        if self.activation == Activation.XeLU:
+            return self.activation(x, self.w, self.b)
         return self.activation(self.Z(x))
 
 @dataclass
+class FourierNeuron:
+    input_size: np.ndarray
+    dtype: np.dtype = np.float32
+
+    def __post_init__(self):
+        self.w = 2*(np.random.random(self.input_size).astype(self.dtype) - 1/2)
+        self.w_grad = np.zeros(self.w.shape).astype(self.dtype)
+    
+    def apply_grad(self):
+        self.w -= self.w_grad
+        self.w_grad *= 0
+    
+    def Z(self, x):
+        #if x.shape != self.w.shape:
+            #raise ValueError(f"Shape mismatch: {x.shape} and {self.w.shape}")
+        return x * self.w
+    
+    def output(self, x):
+        return np.fft.ifft(self.Z(x)).real
+
+@dataclass  
+class FourierLayer:
+    input_size: np.ndarray
+    dtype: np.dtype = np.float32
+
+    def __post_init__(self):
+        self.output_size = self.input_size
+        self.neurons = [FourierNeuron(self.input_size, self.dtype)]
+
+    def output(self, x):
+        return self.neurons[0].output(x)
+
+@dataclass
 class Layer:
-    height: int
-    prev_height: int
-    activation: Callable
+    height: int = None
+    prev_height: int = None
+    activation: callable = Activation.linear
 
     def __post_init__(self):
         self.neurons = [
@@ -99,21 +131,15 @@ class Layer:
 @dataclass
 class NeuralNetwork:
     layers: list
-    activations: list
     lr: float = 20e-4
     h: float = 10e-6
-    loss: Callable = Loss.L2
+    loss: callable = Loss.L2
     graphics = False
-    random_seed: int = 3060
+    random_seed: int = 1010
 
     def __post_init__(self):
         print(f"Random seed: {self.random_seed}")
-        if len(self.activations) != len(self.layers) - 1:
-            raise ValueError(f"Len: activations != layers")
-        self.layers = [
-            Layer(h, p, a) for h, p, a in 
-            zip(self.layers[1:], self.layers[:-1], self.activations)
-        ]
+        np.random.seed(self.random_seed)
     
     def arquiteture(self):
         print(f"layer 0: {self.layers[0].prev_height} neuros\n - ")
@@ -128,21 +154,35 @@ class NeuralNetwork:
             for n in l.neurons:
                 n.apply_grad()
 
+    def backward_neuron(self, n, x, y, train_size):
+        for i in range(n.input_size):
+            n.w[i] += self.h
+            loss_w_h = self.loss(self.forward(x), y)
+            n.w[i] -= self.h
+            loss_w = self.loss(self.forward(x), y)
+            n.w_grad[i] +=  ( (loss_w_h - loss_w) / self.h * self.lr / train_size )
+        n.b += self.h
+        loss_b_h = self.loss(self.forward(x), y)
+        n.b -= self.h
+        loss_b = self.loss(self.forward(x), y)
+        n.b_grad += ( ((loss_b_h - loss_b) / self.h) * self.lr / train_size )
+
+    def backward_fourier_neuron(self, n, x, y, train_size):
+        for i in range(n.input_size):
+            n.w[i] += self.h
+            loss_w_h = self.loss(self.forward(x), y)
+            n.w[i] -= self.h
+            loss_w = self.loss(self.forward(x), y)
+            n.w_grad[i] += (loss_w_h - loss_w) / self.h * self.lr / train_size
+
     def backward(self, x, y, train_size):
         for l in self.layers:
             for n in l.neurons:
-                for i in range(n.input_size):
-                    n.w[i] += self.h
-                    loss_w_h = self.loss(self.forward(x), y)
-                    n.w[i] -= self.h
-                    loss_w = self.loss(self.forward(x), y)
-                    n.w_grad[i] += (loss_w_h - loss_w) / self.h * self.lr / train_size
-                n.b += self.h
-                loss_b_h = self.loss(self.forward(x), y)
-                n.b -= self.h
-                loss_b = self.loss(self.forward(x), y)
-                n.b_grad += ((loss_b_h - loss_b) / self.h) * self.lr / train_size
-    
+                if isinstance(n, Neuron):
+                    self.backward_neuron(n, x, y, train_size)
+                elif isinstance(n, FourierNeuron):
+                    self.backward_fourier_neuron(n, x, y, train_size)
+            
     def forward(self, x):
         for l in self.layers:
             x = l.output(x)
@@ -180,9 +220,10 @@ class NeuralNetwork:
     def train(self, x, y, epochs):
         train_size = len(x)
         for epoch in range(epochs):
-            #inputs_outputs = list(zip(inputs, outputs))
-            #random.shuffle(inputs_outputs)
-            #inputs, outputs = zip(*inputs_outputs)
+            x_y = list(zip(x, y))
+            random.shuffle(x_y)
+            x, y = zip(*x_y)
+            x, y = np.array(x)[:10], np.array(y)[:10]
             for xi, yi in zip(x, y):
                 self.backward(xi, yi, train_size)          
             self.apply_grads()
@@ -207,27 +248,67 @@ class TrainData:
         inputs = np.expand_dims(np.arange(10), axis=1)
         outputs = 2 * np.expand_dims(np.arange(10), axis=1) - 10
         return {'x': inputs, 'y': outputs}
+    
+    @staticmethod
+    def xsquared(show=False):
+        inputs = np.expand_dims(100*(np.random.random(100)), axis=1)
+        outputs = inputs ** 2
+        return {'x': inputs, 'y': outputs}
  
     @staticmethod
-    def circle(show=False):
-        data_circle_xy = 10*(np.random.random((100, 2))-1/2)
-        outputs = np.array([[x**2 + y**2 < 50/np.pi] for x, y in data_circle_xy]).astype(np.float32)
+    def circle(samples, r, show=False):
+        data_circle_xy = (np.sqrt(2*np.pi*r**2))*(np.random.random((samples, 2))-1/2)
+        outputs = np.array([[1 if x**2 + y**2 < r**2 else 0] for x, y in data_circle_xy]).astype(np.float32)
         if show:
+            print(outputs[outputs == 1].shape, outputs[outputs == 0].shape)
             red = data_circle_xy[outputs.squeeze() == 1]
             blue = data_circle_xy[outputs.squeeze() == 0]
             plt.scatter(red[:, 0], red[:, 1], c='red')
             plt.scatter(blue[:, 0], blue[:, 1], c='blue')
             plt.show()
         return {'x': data_circle_xy, 'y': outputs}
+    
+    @staticmethod
+    def sin(show=False):
+        size=40
+        x = np.arange(size)
+        inputs = np.zeros((100, size))
+        outputs = np.zeros((100, size))
+        for i in range(100):
+            phase = np.random.randint(0, 4)
+            amp = np.random.random()*10
+            outputs[i] = amp*np.sin(x*np.pi/2 + phase)
+            inputs[i] = outputs[i].copy()
+            for n in range(5):
+                noise_phase = (np.random.random())*np.pi
+                noise_amp = (np.random.random())*amp
+                inputs[i] += (amp+noise_amp)*(np.sin(x + (phase+noise_phase))) * (n+2)**-1.5
 
-train_data = TrainData.circle(show=False)
+        inputs = np.expand_dims(inputs, axis=2)
+        outputs = np.expand_dims(outputs, axis=2)
+        if show:
+            for i in range(size):
+                plt.plot(np.arange(size), inputs[i], c='blue')
+                plt.plot(np.arange(size), outputs[i], c='red')
+                plt.show()
+        
+        return {'x': inputs, 'y': outputs}
+
+train_data = TrainData.circle(200, 10, show=False)
 
 nn = NeuralNetwork(
-    layers=[2, 4, 4, 1],
-    activations=[Activation.ReLU, Activation.ReLU, Activation.ReLU],
-    lr=0.01,
+    layers=[
+        Layer(prev_height=2, height=5, activation=Activation.ReLU),
+        Layer(prev_height=5, height=5, activation=Activation.ReLU),
+        Layer(prev_height=5, height=5, activation=Activation.ReLU),
+        Layer(prev_height=5, height=5, activation=Activation.ReLU),
+        Layer(prev_height=5, height=1, activation=Activation.linear),
+    ],
+    lr=0.1,
     loss=Loss.L2,
     random_seed=np.random.randint(0, 10000)
 )
+# for x in train_data['x'][:10]:
+#     print(x, nn.forward(x))
 
-nn.train(**train_data, epochs=500)
+nn.train(**train_data, epochs=100)

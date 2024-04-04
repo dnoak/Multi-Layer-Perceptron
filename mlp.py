@@ -149,7 +149,11 @@ train_data_linear = {
 }
 
 nn = NeuralNetwork(
-    arquiteture=[1, 4, 5, 1]
+    arquiteture=[1, 4, 5, 1],
+    lr=0.01,
+    h=0.0001,
+    loss_fn=LossFunctions.r2,
+    random_seed=np.random.randint(0, 1000)
 )
 
 nn.train(train_data_linear, 500)
