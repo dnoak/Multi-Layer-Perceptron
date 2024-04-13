@@ -62,7 +62,7 @@ class Neuron:
         self.w_grad = np.zeros(self.w.shape).astype(self.dtype)
         self.b = 2*(np.random.random(1).astype(self.dtype) - 1/2)
         self.b_grad = np.zeros(1).astype(self.dtype)
-
+    
     def apply_grad(self):
         self.w -= self.w_grad
         self.b -= self.b_grad
@@ -74,7 +74,7 @@ class Neuron:
             raise ValueError('Shape: element wise multiplication:', x, self.w)
         z = np.sum(np.multiply(x, self.w)) + self.b
         return z.squeeze()
-  
+    
     def output(self, x):
         if self.activation == Activation.XeLU:
             return self.activation(x, self.w, self.b)
@@ -155,17 +155,16 @@ class NeuralNetwork:
                 n.apply_grad()
 
     def backward_neuron(self, n, x, y, train_size):
+        loss = self.loss(self.forward(x), y)
         for i in range(n.input_size):
             n.w[i] += self.h
             loss_w_h = self.loss(self.forward(x), y)
             n.w[i] -= self.h
-            loss_w = self.loss(self.forward(x), y)
-            n.w_grad[i] +=  ( (loss_w_h - loss_w) / self.h * self.lr / train_size )
+            n.w_grad[i] +=  ( ((loss_w_h - loss) / self.h) * self.lr / train_size )
         n.b += self.h
         loss_b_h = self.loss(self.forward(x), y)
         n.b -= self.h
-        loss_b = self.loss(self.forward(x), y)
-        n.b_grad += ( ((loss_b_h - loss_b) / self.h) * self.lr / train_size )
+        n.b_grad += ( ((loss_b_h - loss) / self.h) * self.lr / train_size )
 
     def backward_fourier_neuron(self, n, x, y, train_size):
         for i in range(n.input_size):
@@ -182,7 +181,7 @@ class NeuralNetwork:
                     self.backward_neuron(n, x, y, train_size)
                 elif isinstance(n, FourierNeuron):
                     self.backward_fourier_neuron(n, x, y, train_size)
-            
+
     def forward(self, x):
         for l in self.layers:
             x = l.output(x)
@@ -224,6 +223,7 @@ class NeuralNetwork:
             random.shuffle(x_y)
             x, y = zip(*x_y)
             x, y = np.array(x)[:10], np.array(y)[:10]
+            
             for xi, yi in zip(x, y):
                 self.backward(xi, yi, train_size)          
             self.apply_grads()
@@ -294,21 +294,21 @@ class TrainData:
         
         return {'x': inputs, 'y': outputs}
 
-train_data = TrainData.circle(200, 10, show=False)
+train_data = TrainData.circle(100, 10, show=False)
 
 nn = NeuralNetwork(
     layers=[
-        Layer(prev_height=2, height=5, activation=Activation.ReLU),
-        Layer(prev_height=5, height=5, activation=Activation.ReLU),
-        Layer(prev_height=5, height=5, activation=Activation.ReLU),
-        Layer(prev_height=5, height=5, activation=Activation.ReLU),
-        Layer(prev_height=5, height=1, activation=Activation.linear),
+        Layer(prev_height=1, height=2, activation=Activation.ReLU),
+        Layer(prev_height=2, height=2, activation=Activation.ReLU),
+        Layer(prev_height=2, height=2, activation=Activation.ReLU),
+        Layer(prev_height=2, height=1, activation=Activation.linear),
     ],
-    lr=0.1,
+    lr=0.03,
     loss=Loss.L2,
     random_seed=np.random.randint(0, 10000)
 )
-# for x in train_data['x'][:10]:
-#     print(x, nn.forward(x))
 
-nn.train(**train_data, epochs=100)
+for x in train_data['x'][:10]:
+    print(x, nn.forward(x))
+
+nn.train(**train_data, epochs=200)

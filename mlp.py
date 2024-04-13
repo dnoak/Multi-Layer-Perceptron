@@ -137,7 +137,6 @@ class NeuralNetwork:
         for x, y in zip(*train_data.values()):
             print(x, self.forward(x))
 
-        
 train_data_XOR = {
     'input': np.array([[0, 0], [0, 1], [1, 0], [1, 1]]),
     'output': np.array([[0], [1], [1], [0]])
